@@ -51,6 +51,8 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 			def cb(i, win):
 				if i >= 0:
 					a = args.get(ents[i], [])
+					for arg in gs.settings_obj().get('extra_test_args'):
+						a.append(arg)
 					win.active_view().run_command('gs9o_open', {'run': gs.lst('go', 'test', a)})
 
 			gs.show_quick_panel(ents, cb)
