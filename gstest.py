@@ -15,6 +15,7 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 
 	def run(self):
 		last_test_name = get_last_test_name()
+		clear_quick_panel_on_test_run = gs.settings_obj().get("clear_quick_panel_on_test_run")
 
 		def f(res, err):
 
@@ -61,6 +62,8 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 					a = args.get(ents[i], [])
 					save_last_test_name(ents[i])
 					append_extra_test_args(a)
+					if clear_quick_panel_on_test_run:
+						win.active_view().run_command('gs9o_open', {'run': ["clear"]})	
 					win.active_view().run_command('gs9o_open', {'run': gs.lst('go', 'test', a)})
 
 			gs.show_quick_panel(ents, cb)
@@ -114,6 +117,9 @@ def handle_action(view, action):
 
 		append_extra_test_args(cmd)
 		save_last_test_name(re.sub('[\^\$]','', pat))
+
+		if gs.settings_obj().get("clear_quick_panel_on_test_run"):
+			view.run_command('gs9o_open', {'run': ["clear"]})	
 
 		view.run_command('gs9o_open', {'run': cmd})
 
