@@ -14,7 +14,10 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 		return gs.is_go_source_view(self.window.active_view())
 
 	def run(self):
+		last_test_name = get_last_test_name()
+
 		def f(res, err):
+
 			if err:
 				gs.notify(DOMAIN, err)
 				return
@@ -32,6 +35,11 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 
 			names = sorted(args.keys())
 			ents = ['Run all tests and examples']
+			if last_test_name != None and last_test_name != 'Run all tests and examples':
+				ents.insert(0, last_test_name)
+
+			# TODO: What is the purpose of this for loop? mats.get(k) will never be True
+			# which is what it is set at above (mats[True] = prefix)
 			for k in ['Test', 'Benchmark', 'Example']:
 				if mats.get(k):
 					s = 'Run %ss Only' % k
@@ -51,8 +59,8 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 			def cb(i, win):
 				if i >= 0:
 					a = args.get(ents[i], [])
-					for arg in gs.settings_obj().get('extra_test_args'):
-						a.append(arg)
+					save_last_test_name(ents[i])
+					append_extra_test_args(a)
 					win.active_view().run_command('gs9o_open', {'run': gs.lst('go', 'test', a)})
 
 			gs.show_quick_panel(ents, cb)
@@ -69,6 +77,21 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 
 		mg9.declarations(vfn, src, pkg_dir, f)
 
+def last_test_hkey():
+	return '9o.last_test_name'
+
+def get_last_test_name():
+	return gs.aso().get(last_test_hkey())
+
+# TODO: Need to save the test file's path, so we can change to it to run a test if 
+# we're not in that directory anymore
+def save_last_test_name(test_name):
+	gs.aso().set(last_test_hkey(), test_name)
+	gs.save_aso()
+
+def append_extra_test_args(a):
+	for arg in gs.settings_obj().get('extra_test_args'):
+		a.append(arg)
 
 def match_prefix_name(s):
 	m = TEST_PAT.match(s)
@@ -88,6 +111,9 @@ def handle_action(view, action):
 			cmd = ['go', 'test', '-test.run=none', '-test.bench="%s"' % pat]
 		else:
 			cmd = ['go', 'test', '-test.run="%s"' % pat]
+
+		append_extra_test_args(cmd)
+		save_last_test_name(re.sub('[\^\$]','', pat))
 
 		view.run_command('gs9o_open', {'run': cmd})
 
