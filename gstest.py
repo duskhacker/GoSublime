@@ -14,7 +14,7 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 		return gs.is_go_source_view(self.window.active_view())
 
 	def run(self):
-		last_test_name = get_last_test_name()
+		last_test = get_last_test()
 		clear_quick_panel_on_test_run = gs.settings_obj().get("clear_quick_panel_on_test_run")
 
 		def f(res, err):
@@ -36,8 +36,8 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 
 			names = sorted(args.keys())
 			ents = ['Run all tests and examples']
-			if last_test_name != None and last_test_name != 'Run all tests and examples':
-				ents.insert(0, last_test_name)
+			if last_test != None and last_test.get('name') != 'Run all tests and examples':
+				ents.insert(0, last_test.get('name'))
 
 			# TODO: What is the purpose of this for loop? mats.get(k) will never be True
 			# which is what it is set at above (mats[True] = prefix)
@@ -59,12 +59,17 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 
 			def cb(i, win):
 				if i >= 0:
+					view = win.active_view()
 					a = args.get(ents[i], [])
-					save_last_test_name(ents[i])
+					wd = os.path.dirname(view.file_name())
+					if len(a) == 0:
+						a = ['-test.run="^%s$"' % last_test.get('name')]
+						wd = last_test.get('path')
+					save_last_test(ents[i], wd)
 					append_extra_test_args(a)
 					if clear_quick_panel_on_test_run:
-						win.active_view().run_command('gs9o_open', {'run': ["clear"]})	
-					win.active_view().run_command('gs9o_open', {'run': gs.lst('go', 'test', a)})
+						view.run_command('gs9o_open', {'run': ["clear"]})	
+					view.run_command('gs9o_open', {'run': gs.lst('go', 'test', a), 'wd': wd})
 
 			gs.show_quick_panel(ents, cb)
 
@@ -81,15 +86,13 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 		mg9.declarations(vfn, src, pkg_dir, f)
 
 def last_test_hkey():
-	return '9o.last_test_name'
+	return '9o.last_test'
 
-def get_last_test_name():
+def get_last_test():
 	return gs.aso().get(last_test_hkey())
 
-# TODO: Need to save the test file's path, so we can change to it to run a test if 
-# we're not in that directory anymore
-def save_last_test_name(test_name):
-	gs.aso().set(last_test_hkey(), test_name)
+def save_last_test(name, path):
+	gs.aso().set(last_test_hkey(), { "name" : name, "path" : path})
 	gs.save_aso()
 
 def append_extra_test_args(a):
@@ -116,7 +119,7 @@ def handle_action(view, action):
 			cmd = ['go', 'test', '-test.run="%s"' % pat]
 
 		append_extra_test_args(cmd)
-		save_last_test_name(re.sub('[\^\$]','', pat))
+		save_last_test(re.sub('[\^\$]','', pat), os.path.dirname(view.file_name()))
 
 		if gs.settings_obj().get("clear_quick_panel_on_test_run"):
 			view.run_command('gs9o_open', {'run': ["clear"]})	
