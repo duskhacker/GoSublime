@@ -8,6 +8,8 @@ import sublime_plugin
 DOMAIN = 'GsTest'
 
 TEST_PAT = re.compile(r'^((Test|Example|Benchmark)\w*)')
+ALL_TESTS_TITLE = 'Run all tests and examples'
+GOCHECK_PATTERN = '\(\*.*?\)\.%s$'
 
 class GsTestCommand(sublime_plugin.WindowCommand):
 	def is_enabled(self):
@@ -23,52 +25,68 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 				gs.notify(DOMAIN, err)
 				return
 
-			mats = {}
+			# mats = {}
 			args = {}
+			gocheck = {}
 			decls = res.get('file_decls', [])
 			decls.extend(res.get('pkg_decls', []))
 			for d in decls:
 				name = d['name']
 				prefix, _ =  match_prefix_name(name)
-				if prefix and d['kind'] == 'func' and d['repr'] == '':
-					mats[True] = prefix
-					args[name] = name
+				if prefix and d['kind'] == 'func'  and name != 'Test':
+					if d['repr'] == '':
+						# mats[True] = prefix
+						args[name] = name
+						gocheck[name] = False
+					elif re.search(GOCHECK_PATTERN % name, d['repr']) and name != 'Test':
+						# mats[True] = prefix
+						args[name] = name
+						gocheck[name] = True
 
 			names = sorted(args.keys())
-			ents = ['Run all tests and examples']
-			if last_test != None and last_test.get('name') != 'Run all tests and examples':
+			ents = [ALL_TESTS_TITLE]
+			if last_test != None and last_test.get('name') != ALL_TESTS_TITLE:
 				ents.insert(0, last_test.get('name'))
 
 			# TODO: What is the purpose of this for loop? mats.get(k) will never be True
 			# which is what it is set at above (mats[True] = prefix)
-			for k in ['Test', 'Benchmark', 'Example']:
-				if mats.get(k):
-					s = 'Run %ss Only' % k
-					ents.append(s)
-					if k == 'Benchmark':
-						args[s] = ['-test.run=none', '-test.bench="%s.*"' % k]
-					else:
-						args[s] = ['-test.run="%s.*"' % k]
+			# for k in ['Test', 'Benchmark', 'Example']:
+			# 	if mats.get(k):
+			# 		s = 'Run %ss Only' % k
+			# 		ents.append(s)
+			# 		if k == 'Benchmark':
+			# 			args[s] = ['-test.run=none', '-test.bench="%s.*"' % k]
+			# 		else:
+			# 			args[s] = ['-test.run="%s.*"' % k]
 
 			for k in names:
 				ents.append(k)
 				if k.startswith('Benchmark'):
 					args[k] = ['-test.run=none', '-test.bench="^%s$"' % k]
 				else:
-					args[k] = ['-test.run="^%s$"' % k]
+					if gocheck[k]:
+						args[k] = ['-gocheck.f "^%s$"' % k]
+					else:
+						args[k] = ['-test.run="^%s$"' % k]
 
 			def cb(i, win):
 				if i >= 0:
 					view = win.active_view()
 					a = args.get(ents[i], [])
 					wd = os.path.dirname(view.file_name())
-					if len(a) == 0:
-						a = ['-test.run="^%s$"' % last_test.get('name')]
+					gocheck_present = gocheck.get(ents[i], False)
+					if len(a) == 0 and last_test != None and ents[i] != ALL_TESTS_TITLE:
 						wd = last_test.get('path')
-					save_last_test(ents[i], wd)
-					append_extra_test_args(a)
+						gocheck_present = last_test.get('gocheck')
+						if gocheck_present:
+							a = ['-gocheck.f "^%s$"' % last_test.get('name')]
+						else:
+							a = ['-test.run="^%s$"' % last_test.get('name')]
+
+					save_last_test(ents[i], wd, gocheck_present)
+					append_extra_test_args(a, gocheck_present)
 					if clear_quick_panel_on_test_run:
-						view.run_command('gs9o_open', {'run': ["clear"]})	
+						view.run_command('gs9o_open', {'run': ["clear"], 'wd' : wd})	
 					view.run_command('gs9o_open', {'run': gs.lst('go', 'test', a), 'wd': wd})
 
 			gs.show_quick_panel(ents, cb)
@@ -91,13 +109,17 @@ def last_test_hkey():
 def get_last_test():
 	return gs.aso().get(last_test_hkey())
 
-def save_last_test(name, path):
-	gs.aso().set(last_test_hkey(), { "name" : name, "path" : path})
+def save_last_test(name, path, gocheck_present):
+	gs.aso().set(last_test_hkey(), { "name" : name, "path" : path, "gocheck": gocheck_present})
 	gs.save_aso()
 
-def append_extra_test_args(a):
-	for arg in gs.settings_obj().get('extra_test_args'):
+def append_extra_test_args(a, gocheck_present):
+	settings = gs.settings_obj()
+	for arg in settings.get('extra_test_args'):
 		a.append(arg)
+	if gocheck_present:
+		for arg in settings.get('extra_gocheck_args'):
+			a.append(arg)
 
 def match_prefix_name(s):
 	m = TEST_PAT.match(s)
@@ -107,7 +129,11 @@ def handle_action(view, action):
 	fn = view.file_name()
 	prefix, name = match_prefix_name(view.substr(view.word(gs.sel(view))))
 	ok = prefix and fn and fn.endswith('_test.go')
+	gocheck_present = re.search(GOCHECK_PATTERN, prefix)
 	if ok:
+		# TODO use decls to determine gocheck presence
+		full_line = view.substr(view.full_line(gs.sel(view)))
+		gocheck_present = re.search("func\s+\(\s*\w+\s+\*\w+\s*\)\s+%s\s*\(\s*\w+\s+\*\w+\s*\)" % name, full_line)
 		if action == 'right-click':
 			pat = '^%s.*' % prefix
 		else:
@@ -116,10 +142,13 @@ def handle_action(view, action):
 		if prefix == 'Benchmark':
 			cmd = ['go', 'test', '-test.run=none', '-test.bench="%s"' % pat]
 		else:
-			cmd = ['go', 'test', '-test.run="%s"' % pat]
+			if gocheck_present:
+				cmd = ['go', 'test', '-gocheck.f "%s"' % pat]
+			else:		
+				cmd = ['go', 'test', '-test.run="%s"' % pat]
 
-		append_extra_test_args(cmd)
-		save_last_test(re.sub('[\^\$]','', pat), os.path.dirname(view.file_name()))
+		append_extra_test_args(cmd, gocheck_present)
+		save_last_test(re.sub('[\^\$]','', pat), os.path.dirname(view.file_name()), gocheck_present)
 
 		if gs.settings_obj().get("clear_quick_panel_on_test_run"):
 			view.run_command('gs9o_open', {'run': ["clear"]})	
