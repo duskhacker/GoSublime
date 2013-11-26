@@ -62,7 +62,10 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 			for k in names:
 				ents.append(k)
 				if k.startswith('Benchmark'):
-					args[k] = ['-test.run=none', '-test.bench="^%s$"' % k]
+					if gocheck[k]:
+						args[k] = ['-gocheck.b "^%s$"' % k]
+					else:
+						args[k] = ['-test.run=none', '-test.bench="^%s$"' % k]
 				else:
 					if gocheck[k]:
 						args[k] = ['-gocheck.f "^%s$"' % k]
@@ -76,12 +79,19 @@ class GsTestCommand(sublime_plugin.WindowCommand):
 					wd = os.path.dirname(view.file_name())
 					gocheck_present = gocheck.get(ents[i], False)
 					if len(a) == 0 and last_test != None and ents[i] != ALL_TESTS_TITLE:
+						name = last_test.get('name')
 						wd = last_test.get('path')
 						gocheck_present = last_test.get('gocheck')
 						if gocheck_present:
-							a = ['-gocheck.f "^%s$"' % last_test.get('name')]
+							if name.startswith('Benchmark'):
+								a = ['-gocheck.b "^%s$"' % name]
+							else:
+								a = ['-gocheck.f "^%s$"' % name]
 						else:
-							a = ['-test.run="^%s$"' % last_test.get('name')]
+							if name.startswith('Benchmark'):
+								a = ['-test.run=none', '-test.bench="^%s$"' % name]
+							else:
+								a = ['-test.run="^%s$"' % name]
 
 					save_last_test(ents[i], wd, gocheck_present)
 					append_extra_test_args(a, gocheck_present)
@@ -129,7 +139,6 @@ def handle_action(view, action):
 	fn = view.file_name()
 	prefix, name = match_prefix_name(view.substr(view.word(gs.sel(view))))
 	ok = prefix and fn and fn.endswith('_test.go')
-	gocheck_present = re.search(GOCHECK_PATTERN, prefix)
 	if ok:
 		# TODO use decls to determine gocheck presence
 		full_line = view.substr(view.full_line(gs.sel(view)))
@@ -140,7 +149,10 @@ def handle_action(view, action):
 			pat = '^%s$' % name
 
 		if prefix == 'Benchmark':
-			cmd = ['go', 'test', '-test.run=none', '-test.bench="%s"' % pat]
+			if gocheck_present:
+				cmd = ['go', 'test', '-gocheck.b "%s"' % pat]
+			else:
+				cmd = ['go', 'test', '-test.run=none', '-test.bench="%s"' % pat]
 		else:
 			if gocheck_present:
 				cmd = ['go', 'test', '-gocheck.f "%s"' % pat]
